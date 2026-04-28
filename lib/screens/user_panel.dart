@@ -43,6 +43,31 @@ class _UserPanelState extends State<UserPanel> {
     Navigator.pushReplacementNamed(context, '/login');
   }
 
+  Widget _buildBookImage(String? imageUrl) {
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return Container(
+        color: Colors.grey[300],
+        child: const Icon(Icons.book, size: 50),
+      );
+    }
+    final file = File(imageUrl);
+    if (!file.existsSync()) {
+      return Container(
+        color: Colors.grey[300],
+        child: const Icon(Icons.broken_image, size: 50),
+      );
+    }
+    return Image.file(
+      file,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      errorBuilder: (context, error, stackTrace) => Container(
+        color: Colors.grey[300],
+        child: const Icon(Icons.error, size: 50),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bookProvider = Provider.of<BookProvider>(context);
@@ -103,16 +128,7 @@ class _UserPanelState extends State<UserPanel> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        child: book.imageUrl.isNotEmpty
-                            ? Image.file(
-                                File(book.imageUrl),
-                                fit: BoxFit.cover,
-                                width: double.infinity,
-                              )
-                            : Container(
-                                color: Colors.grey[300],
-                                child: const Icon(Icons.book, size: 50),
-                              ),
+                        child: _buildBookImage(book.imageUrl),
                       ),
                       Padding(
                         padding: const EdgeInsets.all(8.0),

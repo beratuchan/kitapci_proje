@@ -1,4 +1,5 @@
 // lib/screens/cart_screen.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/cart_provider.dart';
@@ -24,16 +25,20 @@ class CartScreen extends StatelessWidget {
         // Stok güncel mi kontrol et (tekrar)
         final book = bookProvider.books.firstWhere((b) => b.id == item.book.id);
         if (book.stock < item.quantity) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${book.title} için yeterli stok yok!')),
-          );
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('${book.title} için yeterli stok yok!')),
+            );
+          }
           return;
         }
         final success = await orderProvider.placeOrder(item.book.id!, item.quantity, userId);
         if (!success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${book.title} siparişi başarısız!')),
-          );
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('${book.title} siparişi başarısız!')),
+            );
+          }
           return;
         }
       }
@@ -42,9 +47,30 @@ class CartScreen extends StatelessWidget {
       // Kitapları yeniden yükle (stok güncellemesi için)
       await bookProvider.fetchBooks();
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Siparişleriniz alındı')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Siparişleriniz alındı'))
+        );
         Navigator.pop(context); // Sepetten çık
       }
+    }
+
+    // Yardımcı fonksiyon: görsel gösterimi (yerel dosya kontrolü)
+    Widget _buildBookImage(String? imageUrl) {
+      if (imageUrl == null || imageUrl.isEmpty) {
+        return Container(width: 50, height: 70, color: Colors.grey[300]);
+      }
+      final file = File(imageUrl);
+      if (!file.existsSync()) {
+        return Container(width: 50, height: 70, color: Colors.grey[300]);
+      }
+      return Image.file(
+        file,
+        width: 50,
+        height: 70,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) =>
+            Container(width: 50, height: 70, color: Colors.grey[300]),
+      );
     }
 
     return Scaffold(
@@ -62,9 +88,7 @@ class CartScreen extends StatelessWidget {
                       return Card(
                         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         child: ListTile(
-                          leading: book.imageUrl.isNotEmpty
-                              ? Image.network(book.imageUrl, width: 50, height: 70, fit: BoxFit.cover)
-                              : Container(width: 50, height: 70, color: Colors.grey[300]),
+                          leading: _buildBookImage(book.imageUrl),
                           title: Text(book.title),
                           subtitle: Text('${book.price} TL x ${item.quantity} = ${book.price * item.quantity} TL'),
                           trailing: Row(
@@ -78,7 +102,11 @@ class CartScreen extends StatelessWidget {
                                     try {
                                       cartProvider.updateQuantity(book.id!, newQty, book.stock);
                                     } catch (e) {
-                                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text(e.toString()))
+                                        );
+                                      }
                                     }
                                   } else {
                                     cartProvider.removeItem(book.id!);
@@ -92,7 +120,11 @@ class CartScreen extends StatelessWidget {
                                   try {
                                     cartProvider.updateQuantity(book.id!, item.quantity + 1, book.stock);
                                   } catch (e) {
-                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text(e.toString()))
+                                      );
+                                    }
                                   }
                                 },
                               ),
@@ -109,12 +141,17 @@ class CartScreen extends StatelessWidget {
                 ),
                 Container(
                   padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(color: Colors.grey[100], boxShadow: const [BoxShadow(blurRadius: 4)]),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    boxShadow: const [BoxShadow(blurRadius: 4)]
+                  ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Toplam: ${cartProvider.totalPrice.toStringAsFixed(2)} TL',
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      Text(
+                        'Toplam: ${cartProvider.totalPrice.toStringAsFixed(2)} TL',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+                      ),
                       ElevatedButton.icon(
                         onPressed: _placeOrder,
                         icon: const Icon(Icons.shopping_cart_checkout),

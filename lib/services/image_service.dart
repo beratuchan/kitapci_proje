@@ -1,4 +1,6 @@
+// lib/services/image_service.dart
 import 'dart:io';
+import 'package:flutter/services.dart'; // rootBundle için
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
@@ -37,6 +39,24 @@ class ImageService {
       return savedImage.path;
     } catch (e) {
       print('Resim kaydedilemedi: $e');
+      return null;
+    }
+  }
+
+  // Varsayılan asset resmini yerel dosyaya kopyala
+  static Future<String?> copyAssetToLocal(String assetPath, String newFileName) async {
+    try {
+      final byteData = await rootBundle.load(assetPath);
+      final appDir = await getApplicationDocumentsDirectory();
+      final imagesDir = Directory('${appDir.path}/book_images');
+      if (!await imagesDir.exists()) {
+        await imagesDir.create(recursive: true);
+      }
+      final file = File('${imagesDir.path}/$newFileName');
+      await file.writeAsBytes(byteData.buffer.asUint8List());
+      return file.path;
+    } catch (e) {
+      print('Asset kopyalanamadı: $e');
       return null;
     }
   }

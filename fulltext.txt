@@ -276,6 +276,7 @@ class AuthProvider extends ChangeNotifier {
 
 import 'package:flutter/foundation.dart';
 import 'package:kitapci/services/database_helper.dart';
+import 'package:kitapci/services/image_service.dart';
 import '../models/book.dart';
 
 class BookProvider extends ChangeNotifier {
@@ -339,23 +340,29 @@ class BookProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> deleteBook(int id) async {
-    _isLoading = true;
-    notifyListeners();
+Future<bool> deleteBook(int id) async {
+  _isLoading = true;
+  notifyListeners();
 
-    try {
-      await DatabaseHelper().deleteBook(id);
-      _books.removeWhere((book) => book.id == id);
-      _isLoading = false;
-      notifyListeners();
-      return true;
-    } catch (e) {
-      debugPrint('Delete book error: $e');
-      _isLoading = false;
-      notifyListeners();
-      return false;
+  try {
+    // Önce silinecek kitabı bulup resim yolunu alalım
+    final bookToDelete = _books.firstWhere((b) => b.id == id);
+    await DatabaseHelper().deleteBook(id);
+    // Resim dosyasını sil
+    if (bookToDelete.imageUrl.isNotEmpty) {
+      await ImageService.deleteImageFile(bookToDelete.imageUrl);
     }
+    _books.removeWhere((book) => book.id == id);
+    _isLoading = false;
+    notifyListeners();
+    return true;
+  } catch (e) {
+    debugPrint('Delete book error: $e');
+    _isLoading = false;
+    notifyListeners();
+    return false;
   }
+}
 }
 
 // === C://Users//BERAT//Desktop//flutter_projects//kitapci\lib\providers\cart_provider.dart ===
@@ -498,6 +505,7 @@ Future<bool> placeOrder(int bookId, int quantity, int userId) async {
 
 // === C://Users//BERAT//Desktop//flutter_projects//kitapci\lib\screens\admin_panel.dart ===
 
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
@@ -522,7 +530,6 @@ class _AdminPanelState extends State<AdminPanel> {
     });
   }
 
-  // Tüm verileri sıfırla (kullanıcılar, kitaplar, siparişler -> demo veriler)
   Future<void> _resetFullDatabase() async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -547,7 +554,6 @@ class _AdminPanelState extends State<AdminPanel> {
     }
   }
 
-  // Sadece kitapları sıfırla (kullanıcılar ve siparişler korunur)
   Future<void> _resetBooksOnly() async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -626,7 +632,12 @@ class _AdminPanelState extends State<AdminPanel> {
                               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                               child: ListTile(
                                 leading: book.imageUrl.isNotEmpty
-                                    ? Image.network(book.imageUrl, width: 50, height: 70, fit: BoxFit.cover)
+                                    ? Image.file(
+                                        File(book.imageUrl),
+                                        width: 50,
+                                        height: 70,
+                                        fit: BoxFit.cover,
+                                      )
                                     : Container(width: 50, height: 70, color: Colors.grey[300]),
                                 title: Text(book.title),
                                 subtitle: Text('${book.author} - ${book.price} TL - Stok: ${book.stock}'),
@@ -658,7 +669,7 @@ class _AdminPanelState extends State<AdminPanel> {
                   ),
             // Satış Grafiği sekmesi
             const SalesChart(),
-            // Sıfırla sekmesi - iki buton
+            // Sıfırla sekmesi
             Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -689,9 +700,12 @@ class _AdminPanelState extends State<AdminPanel> {
 // === C://Users//BERAT//Desktop//flutter_projects//kitapci\lib\screens\book_form.dart ===
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'dart:io';
 import '../models/book.dart';
 import '../providers/book_provider.dart';
+import '../services/image_service.dart';
 
 class BookForm extends StatefulWidget {
   final Book? book;
@@ -707,7 +721,8 @@ class _BookFormState extends State<BookForm> {
   late TextEditingController _authorController;
   late TextEditingController _priceController;
   late TextEditingController _stockController;
-  late TextEditingController _imageUrlController;
+  File? _selectedImage;
+  String? _existingImagePath;
   bool _isLoading = false;
 
   @override
@@ -717,7 +732,10 @@ class _BookFormState extends State<BookForm> {
     _authorController = TextEditingController(text: widget.book?.author ?? '');
     _priceController = TextEditingController(text: widget.book?.price.toString() ?? '');
     _stockController = TextEditingController(text: widget.book?.stock.toString() ?? '');
-    _imageUrlController = TextEditingController(text: widget.book?.imageUrl ?? '');
+    _existingImagePath = widget.book?.imageUrl;
+    if (_existingImagePath != null && _existingImagePath!.isNotEmpty) {
+      _selectedImage = File(_existingImagePath!);
+    }
   }
 
   @override
@@ -726,8 +744,18 @@ class _BookFormState extends State<BookForm> {
     _authorController.dispose();
     _priceController.dispose();
     _stockController.dispose();
-    _imageUrlController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final imageFile = source == ImageSource.gallery
+        ? await ImageService.pickImageFromGallery()
+        : await ImageService.pickImageFromCamera();
+    if (imageFile != null) {
+      setState(() {
+        _selectedImage = imageFile;
+      });
+    }
   }
 
   Future<void> _saveBook() async {
@@ -735,13 +763,24 @@ class _BookFormState extends State<BookForm> {
 
     setState(() => _isLoading = true);
 
+    String? savedImagePath = _existingImagePath;
+    // Eğer yeni bir resim seçilmişse kaydet
+    if (_selectedImage != null && _selectedImage!.path != _existingImagePath) {
+      // Eski resmi sil
+      if (_existingImagePath != null && _existingImagePath!.isNotEmpty) {
+        await ImageService.deleteImageFile(_existingImagePath);
+      }
+      final newPath = await ImageService.saveImageToLocal(_selectedImage!);
+      savedImagePath = newPath;
+    }
+
     final book = Book(
       id: widget.book?.id,
       title: _titleController.text.trim(),
       author: _authorController.text.trim(),
       price: double.parse(_priceController.text),
       stock: int.parse(_stockController.text),
-      imageUrl: _imageUrlController.text.trim(),
+      imageUrl: savedImagePath ?? '',
     );
 
     final bookProvider = Provider.of<BookProvider>(context, listen: false);
@@ -763,6 +802,34 @@ class _BookFormState extends State<BookForm> {
     }
   }
 
+  void _showImagePickerDialog() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Galeriden Seç'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Kamerayla Çek'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.camera);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -773,6 +840,31 @@ class _BookFormState extends State<BookForm> {
           key: _formKey,
           child: ListView(
             children: [
+              // Resim seçme alanı
+              GestureDetector(
+                onTap: _showImagePickerDialog,
+                child: Container(
+                  height: 200,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: _selectedImage != null
+                      ? Image.file(_selectedImage!, fit: BoxFit.cover)
+                      : const Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.add_photo_alternate, size: 50, color: Colors.grey),
+                              SizedBox(height: 8),
+                              Text('Resim eklemek için tıklayın'),
+                            ],
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _titleController,
                 decoration: const InputDecoration(labelText: 'Kitap Adı'),
@@ -803,10 +895,6 @@ class _BookFormState extends State<BookForm> {
                   return null;
                 },
               ),
-              TextFormField(
-                controller: _imageUrlController,
-                decoration: const InputDecoration(labelText: 'Resim URL (opsiyonel)'),
-              ),
               const SizedBox(height: 24),
               _isLoading
                   ? const Center(child: CircularProgressIndicator())
@@ -825,6 +913,7 @@ class _BookFormState extends State<BookForm> {
 // === C://Users//BERAT//Desktop//flutter_projects//kitapci\lib\screens\cart_screen.dart ===
 
 // lib/screens/cart_screen.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/cart_provider.dart';
@@ -850,16 +939,20 @@ class CartScreen extends StatelessWidget {
         // Stok güncel mi kontrol et (tekrar)
         final book = bookProvider.books.firstWhere((b) => b.id == item.book.id);
         if (book.stock < item.quantity) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${book.title} için yeterli stok yok!')),
-          );
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('${book.title} için yeterli stok yok!')),
+            );
+          }
           return;
         }
         final success = await orderProvider.placeOrder(item.book.id!, item.quantity, userId);
         if (!success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${book.title} siparişi başarısız!')),
-          );
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('${book.title} siparişi başarısız!')),
+            );
+          }
           return;
         }
       }
@@ -868,9 +961,30 @@ class CartScreen extends StatelessWidget {
       // Kitapları yeniden yükle (stok güncellemesi için)
       await bookProvider.fetchBooks();
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Siparişleriniz alındı')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Siparişleriniz alındı'))
+        );
         Navigator.pop(context); // Sepetten çık
       }
+    }
+
+    // Yardımcı fonksiyon: görsel gösterimi (yerel dosya kontrolü)
+    Widget _buildBookImage(String? imageUrl) {
+      if (imageUrl == null || imageUrl.isEmpty) {
+        return Container(width: 50, height: 70, color: Colors.grey[300]);
+      }
+      final file = File(imageUrl);
+      if (!file.existsSync()) {
+        return Container(width: 50, height: 70, color: Colors.grey[300]);
+      }
+      return Image.file(
+        file,
+        width: 50,
+        height: 70,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) =>
+            Container(width: 50, height: 70, color: Colors.grey[300]),
+      );
     }
 
     return Scaffold(
@@ -888,9 +1002,7 @@ class CartScreen extends StatelessWidget {
                       return Card(
                         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         child: ListTile(
-                          leading: book.imageUrl.isNotEmpty
-                              ? Image.network(book.imageUrl, width: 50, height: 70, fit: BoxFit.cover)
-                              : Container(width: 50, height: 70, color: Colors.grey[300]),
+                          leading: _buildBookImage(book.imageUrl),
                           title: Text(book.title),
                           subtitle: Text('${book.price} TL x ${item.quantity} = ${book.price * item.quantity} TL'),
                           trailing: Row(
@@ -904,7 +1016,11 @@ class CartScreen extends StatelessWidget {
                                     try {
                                       cartProvider.updateQuantity(book.id!, newQty, book.stock);
                                     } catch (e) {
-                                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text(e.toString()))
+                                        );
+                                      }
                                     }
                                   } else {
                                     cartProvider.removeItem(book.id!);
@@ -918,7 +1034,11 @@ class CartScreen extends StatelessWidget {
                                   try {
                                     cartProvider.updateQuantity(book.id!, item.quantity + 1, book.stock);
                                   } catch (e) {
-                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text(e.toString()))
+                                      );
+                                    }
                                   }
                                 },
                               ),
@@ -935,12 +1055,17 @@ class CartScreen extends StatelessWidget {
                 ),
                 Container(
                   padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(color: Colors.grey[100], boxShadow: const [BoxShadow(blurRadius: 4)]),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    boxShadow: const [BoxShadow(blurRadius: 4)]
+                  ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Toplam: ${cartProvider.totalPrice.toStringAsFixed(2)} TL',
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      Text(
+                        'Toplam: ${cartProvider.totalPrice.toStringAsFixed(2)} TL',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+                      ),
                       ElevatedButton.icon(
                         onPressed: _placeOrder,
                         icon: const Icon(Icons.shopping_cart_checkout),
@@ -1512,15 +1637,14 @@ class _SalesChartState extends State<SalesChart> {
 
 // === C://Users//BERAT//Desktop//flutter_projects//kitapci\lib\screens\user_panel.dart ===
 
-// lib/screens/user_panel.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:kitapci/models/book.dart';
-import 'package:kitapci/screens/cart_screen.dart';
 import 'package:provider/provider.dart';
+import '../models/book.dart';
 import '../providers/auth_provider.dart';
 import '../providers/book_provider.dart';
 import '../providers/cart_provider.dart';
-
+import 'cart_screen.dart';
 import 'my_orders.dart';
 
 class UserPanel extends StatefulWidget {
@@ -1556,6 +1680,31 @@ class _UserPanelState extends State<UserPanel> {
   void _logout() {
     Provider.of<AuthProvider>(context, listen: false).logout();
     Navigator.pushReplacementNamed(context, '/login');
+  }
+
+  Widget _buildBookImage(String? imageUrl) {
+    if (imageUrl == null || imageUrl.isEmpty) {
+      return Container(
+        color: Colors.grey[300],
+        child: const Icon(Icons.book, size: 50),
+      );
+    }
+    final file = File(imageUrl);
+    if (!file.existsSync()) {
+      return Container(
+        color: Colors.grey[300],
+        child: const Icon(Icons.broken_image, size: 50),
+      );
+    }
+    return Image.file(
+      file,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      errorBuilder: (context, error, stackTrace) => Container(
+        color: Colors.grey[300],
+        child: const Icon(Icons.error, size: 50),
+      ),
+    );
   }
 
   @override
@@ -1609,15 +1758,16 @@ class _UserPanelState extends State<UserPanel> {
               itemCount: bookProvider.books.length,
               itemBuilder: (ctx, index) {
                 final book = bookProvider.books[index];
-                final cartQty = cartProvider.items.firstWhere((i) => i.book.id == book.id, orElse: () => CartItem(book: book, quantity: 0)).quantity;
+                final cartQty = cartProvider.items.firstWhere(
+                  (i) => i.book.id == book.id,
+                  orElse: () => CartItem(book: book, quantity: 0),
+                ).quantity;
                 return Card(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        child: book.imageUrl.isNotEmpty
-                            ? Image.network(book.imageUrl, fit: BoxFit.cover, width: double.infinity)
-                            : Container(color: Colors.grey[300], child: const Icon(Icons.book, size: 50)),
+                        child: _buildBookImage(book.imageUrl),
                       ),
                       Padding(
                         padding: const EdgeInsets.all(8.0),
@@ -1648,9 +1798,11 @@ class _UserPanelState extends State<UserPanel> {
 
 // === C://Users//BERAT//Desktop//flutter_projects//kitapci\lib\services\database_helper.dart ===
 
+import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'dart:math';
+import 'image_service.dart'; // Kendi ImageService'imiz
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -1677,7 +1829,6 @@ class DatabaseHelper {
   }
 
   Future<void> _onCreate(Database db, int version) async {
-    // books tablosu: imageUrl varsayılan boş string
     await db.execute('''
       CREATE TABLE books (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1688,7 +1839,6 @@ class DatabaseHelper {
         imageUrl TEXT DEFAULT ''
       )
     ''');
-    // users tablosu: name varsayılan 'Kullanıcı'
     await db.execute('''
       CREATE TABLE users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1698,7 +1848,6 @@ class DatabaseHelper {
         name TEXT DEFAULT 'Kullanıcı'
       )
     ''');
-    // orders tablosu: kolon adları camelCase (userId, bookId, orderDate)
     await db.execute('''
       CREATE TABLE orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1710,18 +1859,13 @@ class DatabaseHelper {
         FOREIGN KEY (bookId) REFERENCES books (id) ON DELETE CASCADE
       )
     ''');
-    // Demo verileri ekle
     await _insertDemoData(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      // imageUrl ekle (varsayılan boş string)
       await db.execute('ALTER TABLE books ADD COLUMN imageUrl TEXT DEFAULT ""');
-      // name ekle (varsayılan 'Kullanıcı')
       await db.execute('ALTER TABLE users ADD COLUMN name TEXT DEFAULT "Kullanıcı"');
-      // orders tablosu yeniden oluşturulmalı (kolon adları değiştiği için)
-      // Önce eski orders tablosunu yedekleyip yeniden oluşturmak daha güvenli
       await db.execute('ALTER TABLE orders RENAME TO orders_old');
       await db.execute('''
         CREATE TABLE orders (
@@ -1734,7 +1878,6 @@ class DatabaseHelper {
           FOREIGN KEY (bookId) REFERENCES books (id) ON DELETE CASCADE
         )
       ''');
-      // Verileri aktar (eski kolon adları: user_id, book_id, order_date)
       await db.execute('''
         INSERT INTO orders (id, userId, bookId, orderDate, quantity)
         SELECT id, user_id, book_id, order_date, quantity FROM orders_old
@@ -1743,7 +1886,7 @@ class DatabaseHelper {
     }
   }
 
-  // ========== DEMO VERİLERİ ==========
+  // ========== DEMO VERİLERİ (HER KİTABA AYRI GÖRSEL) ==========
   Future<void> _insertDemoData(Database db) async {
     // Kullanıcılar
     await db.insert('users', {
@@ -1759,18 +1902,36 @@ class DatabaseHelper {
       'name': 'Regular User',
     });
 
-    // Kitaplar (imageUrl boş bırakıldı)
-    List<Map<String, dynamic>> books = [
-      {'title': 'Suç ve Ceza', 'author': 'Fyodor Dostoyevski', 'price': 42.5, 'stock': 7, 'imageUrl': ''},
-      {'title': 'Sefiller', 'author': 'Victor Hugo', 'price': 38.0, 'stock': 5, 'imageUrl': ''},
-      {'title': '1984', 'author': 'George Orwell', 'price': 35.0, 'stock': 10, 'imageUrl': ''},
-      {'title': 'Kürk Mantolu Madonna', 'author': 'Sabahattin Ali', 'price': 28.5, 'stock': 8, 'imageUrl': ''},
-      {'title': 'Şeker Portakalı', 'author': 'José Mauro de Vasconcelos', 'price': 25.0, 'stock': 6, 'imageUrl': ''},
-      {'title': 'Benim Adım Kırmızı', 'author': 'Orhan Pamuk', 'price': 48.0, 'stock': 4, 'imageUrl': ''},
+    // Kitaplar ve ilişkili asset yolları
+    final List<Map<String, dynamic>> booksWithAssets = [
+      {'title': 'Suç ve Ceza', 'author': 'Fyodor Dostoyevski', 'price': 42.5, 'stock': 7, 'imageAsset': 'assets/images/suc_ve_ceza.png'},
+      {'title': 'Sefiller', 'author': 'Victor Hugo', 'price': 38.0, 'stock': 5, 'imageAsset': 'assets/images/sefiller.png'},
+      {'title': '1984', 'author': 'George Orwell', 'price': 35.0, 'stock': 10, 'imageAsset': 'assets/images/1984.png'},
+      {'title': 'Kürk Mantolu Madonna', 'author': 'Sabahattin Ali', 'price': 28.5, 'stock': 8, 'imageAsset': 'assets/images/kurk_mantolu_madonna.png'},
+      {'title': 'Şeker Portakalı', 'author': 'José Mauro de Vasconcelos', 'price': 25.0, 'stock': 6, 'imageAsset': 'assets/images/seker_portakali.png'},
+      {'title': 'Benim Adım Kırmızı', 'author': 'Orhan Pamuk', 'price': 48.0, 'stock': 4, 'imageAsset': 'assets/images/benim_adim_kirmizi.png'},
     ];
+
     List<int> bookIds = [];
-    for (var book in books) {
-      int id = await db.insert('books', book);
+    for (var bookData in booksWithAssets) {
+      // Her kitabın asset resmini kopyala
+      String? localImagePath;
+      try {
+        // Dosya adını asset yolundan çıkar (örn: suc_ve_ceza.png)
+        String fileName = bookData['imageAsset'].split('/').last;
+        localImagePath = await ImageService.copyAssetToLocal(bookData['imageAsset'], fileName);
+      } catch (e) {
+        print('Resim kopyalanamadı: ${bookData['title']} - $e');
+        localImagePath = '';
+      }
+
+      int id = await db.insert('books', {
+        'title': bookData['title'],
+        'author': bookData['author'],
+        'price': bookData['price'],
+        'stock': bookData['stock'],
+        'imageUrl': localImagePath ?? '',
+      });
       bookIds.add(id);
     }
 
@@ -1802,7 +1963,53 @@ class DatabaseHelper {
     }
   }
 
-  // ========== BOOK CRUD ==========
+  // ========== RESET BOOKS ONLY (HER KİTABA AYRI GÖRSEL) ==========
+  Future<void> resetBooksOnly() async {
+    Database db = await database;
+
+    // Eski kitapların resim dosyalarını sil
+    final oldBooks = await getAllBooks();
+    for (var book in oldBooks) {
+      final imagePath = book['imageUrl'];
+      if (imagePath != null && imagePath.isNotEmpty) {
+        final file = File(imagePath);
+        if (await file.exists()) await file.delete();
+      }
+    }
+
+    await db.delete('books');
+
+    // Aynı demo kitapları yeniden ekle
+    final List<Map<String, dynamic>> booksWithAssets = [
+      {'title': 'Suç ve Ceza', 'author': 'Fyodor Dostoyevski', 'price': 42.5, 'stock': 7, 'imageAsset': 'assets/images/suc.png'},
+      {'title': 'Sefiller', 'author': 'Victor Hugo', 'price': 38.0, 'stock': 5, 'imageAsset': 'assets/images/sefiller.png'},
+      {'title': '1984', 'author': 'George Orwell', 'price': 35.0, 'stock': 10, 'imageAsset': 'assets/images/1984.png'},
+      {'title': 'Kürk Mantolu Madonna', 'author': 'Sabahattin Ali', 'price': 28.5, 'stock': 8, 'imageAsset': 'assets/images/madonna.png'},
+      {'title': 'Şeker Portakalı', 'author': 'José Mauro de Vasconcelos', 'price': 25.0, 'stock': 6, 'imageAsset': 'assets/images/portakal.png'},
+      {'title': 'Benim Adım Kırmızı', 'author': 'Orhan Pamuk', 'price': 48.0, 'stock': 4, 'imageAsset': 'assets/images/kirmizi.png'},
+    ];
+
+    for (var bookData in booksWithAssets) {
+      String? localImagePath;
+      try {
+        String fileName = bookData['imageAsset'].split('/').last;
+        localImagePath = await ImageService.copyAssetToLocal(bookData['imageAsset'], fileName);
+      } catch (e) {
+        print('Resim kopyalanamadı: ${bookData['title']} - $e');
+        localImagePath = '';
+      }
+
+      await db.insert('books', {
+        'title': bookData['title'],
+        'author': bookData['author'],
+        'price': bookData['price'],
+        'stock': bookData['stock'],
+        'imageUrl': localImagePath ?? '',
+      });
+    }
+  }
+
+  // ========== DİĞER METODLAR (CRUD vb.) ==========
   Future<int> insertBook(Map<String, dynamic> book) async {
     Database db = await database;
     return await db.insert('books', book);
@@ -1818,29 +2025,12 @@ class DatabaseHelper {
     return await db.delete('books', where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<void> resetBooksOnly() async {
-  Database db = await database;
-  await db.delete('books'); // Tüm kitapları sil
-  // Demo kitapları yeniden ekle
-  List<Map<String, dynamic>> demoBooks = [
-    {'title': 'Suç ve Ceza', 'author': 'Fyodor Dostoyevski', 'price': 42.5, 'stock': 7, 'imageUrl': ''},
-    {'title': 'Sefiller', 'author': 'Victor Hugo', 'price': 38.0, 'stock': 5, 'imageUrl': ''},
-    {'title': '1984', 'author': 'George Orwell', 'price': 35.0, 'stock': 10, 'imageUrl': ''},
-    {'title': 'Kürk Mantolu Madonna', 'author': 'Sabahattin Ali', 'price': 28.5, 'stock': 8, 'imageUrl': ''},
-    {'title': 'Şeker Portakalı', 'author': 'José Mauro de Vasconcelos', 'price': 25.0, 'stock': 6, 'imageUrl': ''},
-    {'title': 'Benim Adım Kırmızı', 'author': 'Orhan Pamuk', 'price': 48.0, 'stock': 4, 'imageUrl': ''},
-  ];
-  for (var book in demoBooks) {
-    await db.insert('books', book);
-  }
-}
-
   Future<List<Map<String, dynamic>>> getAllBooks() async {
     Database db = await database;
     return await db.query('books');
   }
 
-  // ========== USER CRUD ==========
+  // USER CRUD
   Future<int> insertUser(Map<String, dynamic> user) async {
     Database db = await database;
     return await db.insert('users', user);
@@ -1857,7 +2047,7 @@ class DatabaseHelper {
     return null;
   }
 
-  // ========== ORDER CRUD ==========
+  // ORDER CRUD
   Future<int> insertOrder(Map<String, dynamic> order) async {
     Database db = await database;
     return await db.insert('orders', order);
@@ -1876,7 +2066,7 @@ class DatabaseHelper {
     return await db.rawQuery(query, [userId]);
   }
 
-  // ========== MONTHLY SALES (SON 12 AY) ==========
+  // MONTHLY SALES
   Future<List<Map<String, dynamic>>> getMonthlySales() async {
     Database db = await database;
     String query = '''
@@ -1892,16 +2082,17 @@ class DatabaseHelper {
     return await db.rawQuery(query);
   }
 
-  // Kitap stokunu azalt
+  // STOK AZALT
   Future<bool> decreaseBookStock(int bookId, int quantity) async {
     Database db = await database;
     final result = await db.rawUpdate(
       'UPDATE books SET stock = stock - ? WHERE id = ? AND stock >= ?',
       [quantity, bookId, quantity],
     );
-    return result > 0; // true ise stok yeterli ve güncellendi
+    return result > 0;
   }
-  // ========== RESET DATABASE ==========
+
+  // FULL RESET
   Future<void> resetDatabase() async {
     Database db = await database;
     await db.delete('orders');
@@ -1910,13 +2101,88 @@ class DatabaseHelper {
     await _insertDemoData(db);
   }
 
-  // Tüm tabloları silip yeniden oluştur (versiyon sıfırlama)
+  // TAMAMEN YENİDEN OLUŞTUR
   Future<void> resetAndRecreate() async {
     Database db = await database;
     await db.execute('DROP TABLE IF EXISTS orders');
     await db.execute('DROP TABLE IF EXISTS books');
     await db.execute('DROP TABLE IF EXISTS users');
     await _onCreate(db, _databaseVersion);
+  }
+}
+
+// === C://Users//BERAT//Desktop//flutter_projects//kitapci\lib\services\image_service.dart ===
+
+// lib/services/image_service.dart
+import 'dart:io';
+import 'package:flutter/services.dart'; // rootBundle için
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as path;
+
+class ImageService {
+  static final ImagePicker _picker = ImagePicker();
+
+  // Galeriden resim seç
+  static Future<File?> pickImageFromGallery() async {
+    final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      return File(pickedFile.path);
+    }
+    return null;
+  }
+
+  // Kameradan resim çek
+  static Future<File?> pickImageFromCamera() async {
+    final XFile? pickedFile = await _picker.pickImage(source: ImageSource.camera);
+    if (pickedFile != null) {
+      return File(pickedFile.path);
+    }
+    return null;
+  }
+
+  // Seçilen resmi uygulamanın belgeler dizinine kopyala ve yeni yolunu döndür
+  static Future<String?> saveImageToLocal(File imageFile) async {
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      final imagesDir = Directory('${appDir.path}/book_images');
+      if (!await imagesDir.exists()) {
+        await imagesDir.create(recursive: true);
+      }
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${path.basename(imageFile.path)}';
+      final savedImage = await imageFile.copy('${imagesDir.path}/$fileName');
+      return savedImage.path;
+    } catch (e) {
+      print('Resim kaydedilemedi: $e');
+      return null;
+    }
+  }
+
+  // Varsayılan asset resmini yerel dosyaya kopyala
+  static Future<String?> copyAssetToLocal(String assetPath, String newFileName) async {
+    try {
+      final byteData = await rootBundle.load(assetPath);
+      final appDir = await getApplicationDocumentsDirectory();
+      final imagesDir = Directory('${appDir.path}/book_images');
+      if (!await imagesDir.exists()) {
+        await imagesDir.create(recursive: true);
+      }
+      final file = File('${imagesDir.path}/$newFileName');
+      await file.writeAsBytes(byteData.buffer.asUint8List());
+      return file.path;
+    } catch (e) {
+      print('Asset kopyalanamadı: $e');
+      return null;
+    }
+  }
+
+  // Resim dosyasını sil
+  static Future<void> deleteImageFile(String? imagePath) async {
+    if (imagePath == null || imagePath.isEmpty) return;
+    final file = File(imagePath);
+    if (await file.exists()) {
+      await file.delete();
+    }
   }
 }
 
@@ -2024,7 +2290,8 @@ dependencies:
   path_provider: ^2.1.0
   provider: ^6.1.1
   fl_chart: ^0.66.0
-  path: ^1.9.0   # path paketini ekle
+  path: ^1.9.0   
+  image_picker: ^1.0.4   
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -2053,9 +2320,14 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+
+  assets:
+    - assets/images/suc.png
+    - assets/images/sefiller.png
+    - assets/images/1984.png
+    - assets/images/madonna.png
+    - assets/images/portakal.png
+    - assets/images/kirmizi.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

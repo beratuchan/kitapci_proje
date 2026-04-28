@@ -1,8 +1,9 @@
+// lib/services/database_helper.dart
 import 'dart:io';
-
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'dart:math';
+import 'image_service.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -29,7 +30,6 @@ class DatabaseHelper {
   }
 
   Future<void> _onCreate(Database db, int version) async {
-    // books tablosu: imageUrl varsayılan boş string
     await db.execute('''
       CREATE TABLE books (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,7 +40,6 @@ class DatabaseHelper {
         imageUrl TEXT DEFAULT ''
       )
     ''');
-    // users tablosu: name varsayılan 'Kullanıcı'
     await db.execute('''
       CREATE TABLE users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,7 +49,6 @@ class DatabaseHelper {
         name TEXT DEFAULT 'Kullanıcı'
       )
     ''');
-    // orders tablosu: kolon adları camelCase (userId, bookId, orderDate)
     await db.execute('''
       CREATE TABLE orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,18 +60,13 @@ class DatabaseHelper {
         FOREIGN KEY (bookId) REFERENCES books (id) ON DELETE CASCADE
       )
     ''');
-    // Demo verileri ekle
     await _insertDemoData(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      // imageUrl ekle (varsayılan boş string)
       await db.execute('ALTER TABLE books ADD COLUMN imageUrl TEXT DEFAULT ""');
-      // name ekle (varsayılan 'Kullanıcı')
       await db.execute('ALTER TABLE users ADD COLUMN name TEXT DEFAULT "Kullanıcı"');
-      // orders tablosu yeniden oluşturulmalı (kolon adları değiştiği için)
-      // Önce eski orders tablosunu yedekleyip yeniden oluşturmak daha güvenli
       await db.execute('ALTER TABLE orders RENAME TO orders_old');
       await db.execute('''
         CREATE TABLE orders (
@@ -86,7 +79,6 @@ class DatabaseHelper {
           FOREIGN KEY (bookId) REFERENCES books (id) ON DELETE CASCADE
         )
       ''');
-      // Verileri aktar (eski kolon adları: user_id, book_id, order_date)
       await db.execute('''
         INSERT INTO orders (id, userId, bookId, orderDate, quantity)
         SELECT id, user_id, book_id, order_date, quantity FROM orders_old
@@ -95,7 +87,7 @@ class DatabaseHelper {
     }
   }
 
-  // ========== DEMO VERİLERİ ==========
+  // ========== DEMO VERİLERİ (pubspec.yaml ile uyumlu kısa isimler) ==========
   Future<void> _insertDemoData(Database db) async {
     // Kullanıcılar
     await db.insert('users', {
@@ -111,18 +103,34 @@ class DatabaseHelper {
       'name': 'Regular User',
     });
 
-    // Kitaplar (imageUrl boş bırakıldı)
-    List<Map<String, dynamic>> books = [
-      {'title': 'Suç ve Ceza', 'author': 'Fyodor Dostoyevski', 'price': 42.5, 'stock': 7, 'imageUrl': ''},
-      {'title': 'Sefiller', 'author': 'Victor Hugo', 'price': 38.0, 'stock': 5, 'imageUrl': ''},
-      {'title': '1984', 'author': 'George Orwell', 'price': 35.0, 'stock': 10, 'imageUrl': ''},
-      {'title': 'Kürk Mantolu Madonna', 'author': 'Sabahattin Ali', 'price': 28.5, 'stock': 8, 'imageUrl': ''},
-      {'title': 'Şeker Portakalı', 'author': 'José Mauro de Vasconcelos', 'price': 25.0, 'stock': 6, 'imageUrl': ''},
-      {'title': 'Benim Adım Kırmızı', 'author': 'Orhan Pamuk', 'price': 48.0, 'stock': 4, 'imageUrl': ''},
+    // Kitaplar - asset isimleri pubspec.yaml ile aynı
+    final List<Map<String, dynamic>> booksWithAssets = [
+      {'title': 'Suç ve Ceza', 'author': 'Fyodor Dostoyevski', 'price': 42.5, 'stock': 7, 'imageAsset': 'assets/images/suc.png'},
+      {'title': 'Sefiller', 'author': 'Victor Hugo', 'price': 38.0, 'stock': 5, 'imageAsset': 'assets/images/sefiller.png'},
+      {'title': '1984', 'author': 'George Orwell', 'price': 35.0, 'stock': 10, 'imageAsset': 'assets/images/1984.png'},
+      {'title': 'Kürk Mantolu Madonna', 'author': 'Sabahattin Ali', 'price': 28.5, 'stock': 8, 'imageAsset': 'assets/images/madonna.png'},
+      {'title': 'Şeker Portakalı', 'author': 'José Mauro de Vasconcelos', 'price': 25.0, 'stock': 6, 'imageAsset': 'assets/images/portakal.png'},
+      {'title': 'Benim Adım Kırmızı', 'author': 'Orhan Pamuk', 'price': 48.0, 'stock': 4, 'imageAsset': 'assets/images/kirmizi.png'},
     ];
+
     List<int> bookIds = [];
-    for (var book in books) {
-      int id = await db.insert('books', book);
+    for (var bookData in booksWithAssets) {
+      String? localImagePath;
+      try {
+        String fileName = bookData['imageAsset'].split('/').last;
+        localImagePath = await ImageService.copyAssetToLocal(bookData['imageAsset'], fileName);
+      } catch (e) {
+        print('Resim kopyalanamadı: ${bookData['title']} - $e');
+        localImagePath = '';
+      }
+
+      int id = await db.insert('books', {
+        'title': bookData['title'],
+        'author': bookData['author'],
+        'price': bookData['price'],
+        'stock': bookData['stock'],
+        'imageUrl': localImagePath ?? '',
+      });
       bookIds.add(id);
     }
 
@@ -148,13 +156,59 @@ class DatabaseHelper {
           'userId': userId,
           'bookId': bookId,
           'orderDate': isoDate,
-          'quantity': 1,
+          'quantity': 1 + rng.nextInt(3),
         });
       }
     }
   }
 
-  // ========== BOOK CRUD ==========
+  // ========== RESET BOOKS ONLY (aynı uyumlu assetler) ==========
+  Future<void> resetBooksOnly() async {
+    Database db = await database;
+
+    // Eski kitapların resim dosyalarını sil
+    final oldBooks = await getAllBooks();
+    for (var book in oldBooks) {
+      final imagePath = book['imageUrl'];
+      if (imagePath != null && imagePath.isNotEmpty) {
+        final file = File(imagePath);
+        if (await file.exists()) await file.delete();
+      }
+    }
+
+    await db.delete('books');
+
+    // Aynı demo kitapları yeniden ekle (kısa isimler)
+    final List<Map<String, dynamic>> booksWithAssets = [
+      {'title': 'Suç ve Ceza', 'author': 'Fyodor Dostoyevski', 'price': 42.5, 'stock': 7, 'imageAsset': 'assets/images/suc.png'},
+      {'title': 'Sefiller', 'author': 'Victor Hugo', 'price': 38.0, 'stock': 5, 'imageAsset': 'assets/images/sefiller.png'},
+      {'title': '1984', 'author': 'George Orwell', 'price': 35.0, 'stock': 10, 'imageAsset': 'assets/images/1984.png'},
+      {'title': 'Kürk Mantolu Madonna', 'author': 'Sabahattin Ali', 'price': 28.5, 'stock': 8, 'imageAsset': 'assets/images/madonna.png'},
+      {'title': 'Şeker Portakalı', 'author': 'José Mauro de Vasconcelos', 'price': 25.0, 'stock': 6, 'imageAsset': 'assets/images/portakal.png'},
+      {'title': 'Benim Adım Kırmızı', 'author': 'Orhan Pamuk', 'price': 48.0, 'stock': 4, 'imageAsset': 'assets/images/kirmizi.png'},
+    ];
+
+    for (var bookData in booksWithAssets) {
+      String? localImagePath;
+      try {
+        String fileName = bookData['imageAsset'].split('/').last;
+        localImagePath = await ImageService.copyAssetToLocal(bookData['imageAsset'], fileName);
+      } catch (e) {
+        print('Resim kopyalanamadı: ${bookData['title']} - $e');
+        localImagePath = '';
+      }
+
+      await db.insert('books', {
+        'title': bookData['title'],
+        'author': bookData['author'],
+        'price': bookData['price'],
+        'stock': bookData['stock'],
+        'imageUrl': localImagePath ?? '',
+      });
+    }
+  }
+
+  // ========== DİĞER METODLAR (CRUD vb.) ==========
   Future<int> insertBook(Map<String, dynamic> book) async {
     Database db = await database;
     return await db.insert('books', book);
@@ -170,40 +224,12 @@ class DatabaseHelper {
     return await db.delete('books', where: 'id = ?', whereArgs: [id]);
   }
 
-Future<void> resetBooksOnly() async {
-  Database db = await database;
-  
-  // Tüm kitapları silmeden önce her bir kitabın resim dosyasını sil (isteğe bağlı)
-  final oldBooks = await getAllBooks();
-  for (var book in oldBooks) {
-    final imagePath = book['imageUrl'];
-    if (imagePath != null && imagePath.isNotEmpty) {
-      final file = File(imagePath);
-      if (await file.exists()) await file.delete();
-    }
-  }
-  
-  await db.delete('books');
-  // Demo kitapları yeniden ekle (imageUrl boş)
-  List<Map<String, dynamic>> demoBooks = [
-    {'title': 'Suç ve Ceza', 'author': 'Fyodor Dostoyevski', 'price': 42.5, 'stock': 7, 'imageUrl': ''},
-    {'title': 'Sefiller', 'author': 'Victor Hugo', 'price': 38.0, 'stock': 5, 'imageUrl': ''},
-    {'title': '1984', 'author': 'George Orwell', 'price': 35.0, 'stock': 10, 'imageUrl': ''},
-    {'title': 'Kürk Mantolu Madonna', 'author': 'Sabahattin Ali', 'price': 28.5, 'stock': 8, 'imageUrl': ''},
-    {'title': 'Şeker Portakalı', 'author': 'José Mauro de Vasconcelos', 'price': 25.0, 'stock': 6, 'imageUrl': ''},
-    {'title': 'Benim Adım Kırmızı', 'author': 'Orhan Pamuk', 'price': 48.0, 'stock': 4, 'imageUrl': ''},
-  ];
-  for (var book in demoBooks) {
-    await db.insert('books', book);
-  }
-}
-
   Future<List<Map<String, dynamic>>> getAllBooks() async {
     Database db = await database;
     return await db.query('books');
   }
 
-  // ========== USER CRUD ==========
+  // USER CRUD
   Future<int> insertUser(Map<String, dynamic> user) async {
     Database db = await database;
     return await db.insert('users', user);
@@ -220,7 +246,7 @@ Future<void> resetBooksOnly() async {
     return null;
   }
 
-  // ========== ORDER CRUD ==========
+  // ORDER CRUD
   Future<int> insertOrder(Map<String, dynamic> order) async {
     Database db = await database;
     return await db.insert('orders', order);
@@ -239,7 +265,7 @@ Future<void> resetBooksOnly() async {
     return await db.rawQuery(query, [userId]);
   }
 
-  // ========== MONTHLY SALES (SON 12 AY) ==========
+  // MONTHLY SALES
   Future<List<Map<String, dynamic>>> getMonthlySales() async {
     Database db = await database;
     String query = '''
@@ -255,16 +281,17 @@ Future<void> resetBooksOnly() async {
     return await db.rawQuery(query);
   }
 
-  // Kitap stokunu azalt
+  // STOK AZALT
   Future<bool> decreaseBookStock(int bookId, int quantity) async {
     Database db = await database;
     final result = await db.rawUpdate(
       'UPDATE books SET stock = stock - ? WHERE id = ? AND stock >= ?',
       [quantity, bookId, quantity],
     );
-    return result > 0; // true ise stok yeterli ve güncellendi
+    return result > 0;
   }
-  // ========== RESET DATABASE ==========
+
+  // FULL RESET
   Future<void> resetDatabase() async {
     Database db = await database;
     await db.delete('orders');
@@ -273,7 +300,7 @@ Future<void> resetBooksOnly() async {
     await _insertDemoData(db);
   }
 
-  // Tüm tabloları silip yeniden oluştur (versiyon sıfırlama)
+  // TAMAMEN YENİDEN OLUŞTUR
   Future<void> resetAndRecreate() async {
     Database db = await database;
     await db.execute('DROP TABLE IF EXISTS orders');
