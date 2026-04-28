@@ -1,8 +1,12 @@
+// lib/screens/user_panel.dart
 import 'package:flutter/material.dart';
+import 'package:kitapci/models/book.dart';
+import 'package:kitapci/screens/cart_screen.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/book_provider.dart';
-import '../providers/order_provider.dart';
+import '../providers/cart_provider.dart';
+
 import 'my_orders.dart';
 
 class UserPanel extends StatefulWidget {
@@ -13,8 +17,6 @@ class UserPanel extends StatefulWidget {
 }
 
 class _UserPanelState extends State<UserPanel> {
-  final Map<int, int> _cart = {}; // bookId -> quantity
-
   @override
   void initState() {
     super.initState();
@@ -23,37 +25,18 @@ class _UserPanelState extends State<UserPanel> {
     });
   }
 
-  void _addToCart(int bookId) {
-    setState(() {
-      _cart[bookId] = (_cart[bookId] ?? 0) + 1;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Sepete eklendi'), duration: Duration(seconds: 1)),
-    );
-  }
-
-  Future<void> _checkout() async {
-    if (_cart.isEmpty) {
+  void _addToCart(Book book) {
+    final cartProvider = Provider.of<CartProvider>(context, listen: false);
+    try {
+      cartProvider.addItem(book, book.stock);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sepet boş')),
+        const SnackBar(content: Text('Sepete eklendi'), duration: Duration(seconds: 1)),
       );
-      return;
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
     }
-
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final userId = authProvider.currentUser?.id;
-    if (userId == null) return;
-
-    final orderProvider = Provider.of<OrderProvider>(context, listen: false);
-    for (var entry in _cart.entries) {
-      await orderProvider.placeOrder(entry.key, entry.value, userId);
-    }
-    setState(() {
-      _cart.clear();
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Siparişiniz alındı')),
-    );
   }
 
   void _logout() {
@@ -64,7 +47,8 @@ class _UserPanelState extends State<UserPanel> {
   @override
   Widget build(BuildContext context) {
     final bookProvider = Provider.of<BookProvider>(context);
-    final cartItemCount = _cart.values.fold(0, (sum, q) => sum + q);
+    final cartProvider = Provider.of<CartProvider>(context);
+    final cartItemCount = cartProvider.items.fold(0, (sum, item) => sum + item.quantity);
 
     return Scaffold(
       appBar: AppBar(
@@ -74,7 +58,7 @@ class _UserPanelState extends State<UserPanel> {
             children: [
               IconButton(
                 icon: const Icon(Icons.shopping_cart),
-                onPressed: () {},
+                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CartScreen())),
               ),
               if (cartItemCount > 0)
                 Positioned(
@@ -82,24 +66,17 @@ class _UserPanelState extends State<UserPanel> {
                   top: 4,
                   child: Container(
                     padding: const EdgeInsets.all(2),
-                    decoration: const BoxDecoration(
-                      color: Colors.red,
-                      shape: BoxShape.circle,
-                    ),
+                    decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
                     constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                    child: Text(
-                      cartItemCount.toString(),
-                      style: const TextStyle(color: Colors.white, fontSize: 10),
-                      textAlign: TextAlign.center,
-                    ),
+                    child: Text(cartItemCount.toString(),
+                        style: const TextStyle(color: Colors.white, fontSize: 10),
+                        textAlign: TextAlign.center),
                   ),
                 ),
             ],
           ),
           IconButton(
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const MyOrders()));
-            },
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyOrders())),
             icon: const Icon(Icons.history),
           ),
           IconButton(onPressed: _logout, icon: const Icon(Icons.logout)),
@@ -118,7 +95,7 @@ class _UserPanelState extends State<UserPanel> {
               itemCount: bookProvider.books.length,
               itemBuilder: (ctx, index) {
                 final book = bookProvider.books[index];
-                final cartQuantity = _cart[book.id] ?? 0;
+                final cartQty = cartProvider.items.firstWhere((i) => i.book.id == book.id, orElse: () => CartItem(book: book, quantity: 0)).quantity;
                 return Card(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -137,11 +114,10 @@ class _UserPanelState extends State<UserPanel> {
                             Text(book.author),
                             Text('${book.price} TL', style: const TextStyle(color: Colors.green)),
                             Text('Stok: ${book.stock}'),
-                            if (cartQuantity > 0)
-                              Text('Sepette: $cartQuantity', style: const TextStyle(color: Colors.orange)),
+                            if (cartQty > 0) Text('Sepette: $cartQty', style: const TextStyle(color: Colors.orange)),
                             const SizedBox(height: 8),
                             ElevatedButton(
-                              onPressed: book.stock > 0 ? () => _addToCart(book.id!) : null,
+                              onPressed: book.stock > 0 ? () => _addToCart(book) : null,
                               child: const Text('Sepete Ekle'),
                             ),
                           ],
@@ -152,11 +128,6 @@ class _UserPanelState extends State<UserPanel> {
                 );
               },
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _checkout,
-        icon: const Icon(Icons.shopping_cart_checkout),
-        label: Text('Sepeti Onayla (${_cart.length})'),
-      ),
     );
   }
 }

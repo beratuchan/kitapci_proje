@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:kitapci/providers/cart_provider.dart';
 import 'package:kitapci/providers/order_provider.dart';
 import 'package:kitapci/services/database_helper.dart';
 import 'package:provider/provider.dart';
@@ -24,6 +25,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => BookProvider()),
         ChangeNotifierProvider(create: (_) => OrderProvider()),
+        ChangeNotifierProvider(create: (_) => CartProvider()), 
       ],
       child: MaterialApp(
         title: 'Kitapçı App',
