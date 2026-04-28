@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'dart:io';
 import '../models/book.dart';
 import '../providers/book_provider.dart';
+import '../services/image_service.dart';
 
 class BookForm extends StatefulWidget {
   final Book? book;
@@ -17,7 +20,8 @@ class _BookFormState extends State<BookForm> {
   late TextEditingController _authorController;
   late TextEditingController _priceController;
   late TextEditingController _stockController;
-  late TextEditingController _imageUrlController;
+  File? _selectedImage;
+  String? _existingImagePath;
   bool _isLoading = false;
 
   @override
@@ -27,7 +31,10 @@ class _BookFormState extends State<BookForm> {
     _authorController = TextEditingController(text: widget.book?.author ?? '');
     _priceController = TextEditingController(text: widget.book?.price.toString() ?? '');
     _stockController = TextEditingController(text: widget.book?.stock.toString() ?? '');
-    _imageUrlController = TextEditingController(text: widget.book?.imageUrl ?? '');
+    _existingImagePath = widget.book?.imageUrl;
+    if (_existingImagePath != null && _existingImagePath!.isNotEmpty) {
+      _selectedImage = File(_existingImagePath!);
+    }
   }
 
   @override
@@ -36,8 +43,18 @@ class _BookFormState extends State<BookForm> {
     _authorController.dispose();
     _priceController.dispose();
     _stockController.dispose();
-    _imageUrlController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final imageFile = source == ImageSource.gallery
+        ? await ImageService.pickImageFromGallery()
+        : await ImageService.pickImageFromCamera();
+    if (imageFile != null) {
+      setState(() {
+        _selectedImage = imageFile;
+      });
+    }
   }
 
   Future<void> _saveBook() async {
@@ -45,13 +62,24 @@ class _BookFormState extends State<BookForm> {
 
     setState(() => _isLoading = true);
 
+    String? savedImagePath = _existingImagePath;
+    // Eğer yeni bir resim seçilmişse kaydet
+    if (_selectedImage != null && _selectedImage!.path != _existingImagePath) {
+      // Eski resmi sil
+      if (_existingImagePath != null && _existingImagePath!.isNotEmpty) {
+        await ImageService.deleteImageFile(_existingImagePath);
+      }
+      final newPath = await ImageService.saveImageToLocal(_selectedImage!);
+      savedImagePath = newPath;
+    }
+
     final book = Book(
       id: widget.book?.id,
       title: _titleController.text.trim(),
       author: _authorController.text.trim(),
       price: double.parse(_priceController.text),
       stock: int.parse(_stockController.text),
-      imageUrl: _imageUrlController.text.trim(),
+      imageUrl: savedImagePath ?? '',
     );
 
     final bookProvider = Provider.of<BookProvider>(context, listen: false);
@@ -73,6 +101,34 @@ class _BookFormState extends State<BookForm> {
     }
   }
 
+  void _showImagePickerDialog() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Galeriden Seç'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Kamerayla Çek'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.camera);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -83,6 +139,31 @@ class _BookFormState extends State<BookForm> {
           key: _formKey,
           child: ListView(
             children: [
+              // Resim seçme alanı
+              GestureDetector(
+                onTap: _showImagePickerDialog,
+                child: Container(
+                  height: 200,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: _selectedImage != null
+                      ? Image.file(_selectedImage!, fit: BoxFit.cover)
+                      : const Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.add_photo_alternate, size: 50, color: Colors.grey),
+                              SizedBox(height: 8),
+                              Text('Resim eklemek için tıklayın'),
+                            ],
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _titleController,
                 decoration: const InputDecoration(labelText: 'Kitap Adı'),
@@ -112,10 +193,6 @@ class _BookFormState extends State<BookForm> {
                   if (int.tryParse(v) == null) return 'Geçerli sayı giriniz';
                   return null;
                 },
-              ),
-              TextFormField(
-                controller: _imageUrlController,
-                decoration: const InputDecoration(labelText: 'Resim URL (opsiyonel)'),
               ),
               const SizedBox(height: 24),
               _isLoading

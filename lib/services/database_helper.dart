@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'dart:math';
@@ -168,10 +170,21 @@ class DatabaseHelper {
     return await db.delete('books', where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<void> resetBooksOnly() async {
+Future<void> resetBooksOnly() async {
   Database db = await database;
-  await db.delete('books'); // Tüm kitapları sil
-  // Demo kitapları yeniden ekle
+  
+  // Tüm kitapları silmeden önce her bir kitabın resim dosyasını sil (isteğe bağlı)
+  final oldBooks = await getAllBooks();
+  for (var book in oldBooks) {
+    final imagePath = book['imageUrl'];
+    if (imagePath != null && imagePath.isNotEmpty) {
+      final file = File(imagePath);
+      if (await file.exists()) await file.delete();
+    }
+  }
+  
+  await db.delete('books');
+  // Demo kitapları yeniden ekle (imageUrl boş)
   List<Map<String, dynamic>> demoBooks = [
     {'title': 'Suç ve Ceza', 'author': 'Fyodor Dostoyevski', 'price': 42.5, 'stock': 7, 'imageUrl': ''},
     {'title': 'Sefiller', 'author': 'Victor Hugo', 'price': 38.0, 'stock': 5, 'imageUrl': ''},

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
@@ -22,7 +23,6 @@ class _AdminPanelState extends State<AdminPanel> {
     });
   }
 
-  // Tüm verileri sıfırla (kullanıcılar, kitaplar, siparişler -> demo veriler)
   Future<void> _resetFullDatabase() async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -47,7 +47,6 @@ class _AdminPanelState extends State<AdminPanel> {
     }
   }
 
-  // Sadece kitapları sıfırla (kullanıcılar ve siparişler korunur)
   Future<void> _resetBooksOnly() async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -126,7 +125,12 @@ class _AdminPanelState extends State<AdminPanel> {
                               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                               child: ListTile(
                                 leading: book.imageUrl.isNotEmpty
-                                    ? Image.network(book.imageUrl, width: 50, height: 70, fit: BoxFit.cover)
+                                    ? Image.file(
+                                        File(book.imageUrl),
+                                        width: 50,
+                                        height: 70,
+                                        fit: BoxFit.cover,
+                                      )
                                     : Container(width: 50, height: 70, color: Colors.grey[300]),
                                 title: Text(book.title),
                                 subtitle: Text('${book.author} - ${book.price} TL - Stok: ${book.stock}'),
@@ -158,7 +162,7 @@ class _AdminPanelState extends State<AdminPanel> {
                   ),
             // Satış Grafiği sekmesi
             const SalesChart(),
-            // Sıfırla sekmesi - iki buton
+            // Sıfırla sekmesi
             Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,

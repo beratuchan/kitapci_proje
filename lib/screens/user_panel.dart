@@ -1,12 +1,11 @@
-// lib/screens/user_panel.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:kitapci/models/book.dart';
-import 'package:kitapci/screens/cart_screen.dart';
 import 'package:provider/provider.dart';
+import '../models/book.dart';
 import '../providers/auth_provider.dart';
 import '../providers/book_provider.dart';
 import '../providers/cart_provider.dart';
-
+import 'cart_screen.dart';
 import 'my_orders.dart';
 
 class UserPanel extends StatefulWidget {
@@ -95,15 +94,25 @@ class _UserPanelState extends State<UserPanel> {
               itemCount: bookProvider.books.length,
               itemBuilder: (ctx, index) {
                 final book = bookProvider.books[index];
-                final cartQty = cartProvider.items.firstWhere((i) => i.book.id == book.id, orElse: () => CartItem(book: book, quantity: 0)).quantity;
+                final cartQty = cartProvider.items.firstWhere(
+                  (i) => i.book.id == book.id,
+                  orElse: () => CartItem(book: book, quantity: 0),
+                ).quantity;
                 return Card(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: book.imageUrl.isNotEmpty
-                            ? Image.network(book.imageUrl, fit: BoxFit.cover, width: double.infinity)
-                            : Container(color: Colors.grey[300], child: const Icon(Icons.book, size: 50)),
+                            ? Image.file(
+                                File(book.imageUrl),
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                              )
+                            : Container(
+                                color: Colors.grey[300],
+                                child: const Icon(Icons.book, size: 50),
+                              ),
                       ),
                       Padding(
                         padding: const EdgeInsets.all(8.0),
