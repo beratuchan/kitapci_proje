@@ -1,0 +1,5 @@
+package com.example.kitapci
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()
