@@ -91,7 +91,7 @@ class _AdminPanelState extends State<AdminPanel> {
             tabs: [
               Tab(text: 'Kitaplar'),
               Tab(text: 'Satış Grafiği'),
-              Tab(text: 'Sıfırla'),
+              Tab(text: 'Admin Reset'),
             ],
           ),
         ),

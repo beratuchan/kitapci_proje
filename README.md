@@ -1,17 +1,23 @@
-# kitapci
+# Kitapçı – Online Kitabevi Satış Uygulaması
 
-A new Flutter project.
+Bu proje, Flutter ile geliştirilmiş bir kitabevi online satış uygulamasıdır.  
+Kullanıcılar kitap listesini görüntüleyebilir, sepete ekleyebilir ve sipariş verebilir.  
+Yöneticiler kitap ekleme/düzenleme/silme, satış grafiğini görüntüleme ve **veritabanını sıfırlama** yetkisine sahiptir.
 
-## Getting Started
+Ödev kapsamında, bozulmuş verileri temizleyerek sistemi düzgün verilerle tekrar kullanılabilir pazarlama demosuna hazır hale getiren bir mekanizma (yönetici reset düğmesi) sunulmaktadır.
 
-This project is a starting point for a Flutter application.
+---
 
-A few resources to get you started if this is your first Flutter project:
+## Başlangıç
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+### Gereksinimler
+- Flutter SDK (>=3.11.5)
+- Dart (>=3.0.0)
+- Android/iOS emülatör veya fiziksel cihaz
+- VS Code / Android Studio (önerilen)
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### Kurulum Adımları
+1. Projeyi klonlayın veya dosyaları bilgisayarınıza kopyalayın.
+2. Proje kök dizininde terminal açın ve bağımlılıkları yükleyin:
+   ```bash
+   flutter pub get
