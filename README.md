@@ -21,3 +21,7 @@ Yöneticiler kitap ekleme/düzenleme/silme, satış grafiğini görüntüleme ve
 2. Proje kök dizininde terminal açın ve bağımlılıkları yükleyin:
    ```bash
    flutter pub get
+
+### Çalıştırmak İçin
+-flutter run
+
